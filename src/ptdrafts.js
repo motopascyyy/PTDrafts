@@ -1,7 +1,17 @@
 // Drafts 
 const lineRegEx = new RegExp('^\|.*\|$');
-
 const draftContents = editor.getText();
+
+
+const defaultAlignPattern = / *-+ */g;
+
+const LEFT_ALIGN = -1;
+const CENTRE_ALIGN = 0;
+const RIGHT_ALIGN = 1
+
+let leftAlignPattern = /^\s*:-+\s*$/;
+let rightAlignPattern = /^\s*-+:\s*$/;
+let centreAlignPattern = /^\s*:-+:\s*$/;
 
 function betterTab () {
 	let start = new Date().valueOf();
@@ -53,9 +63,6 @@ function isBulletedList (preceedingTrimmedString) {
 
 
 function moveCursorToNextCell(currentCursor, lineRange){
-	// determine if in last cell
-	// if not in last cell, find next cell
-	// if in last cell, do nothing
 	let offset = currentCursor[0] - lineRange [0];
 	let cursorToEOLText = editor.getTextInRange(currentCursor[0], lineRange[1]-offset);
 	let pipesRemaining = cursorToEOLText.match(/\|/g).length;
@@ -70,7 +77,6 @@ function moveCursorToNextCell(currentCursor, lineRange){
 }
 
 function moveCursorToPreviousCell(currentCursor, lineRange) {
-	let start = new Date().valueOf();
 	let cursorToSOLText = editor.getTextInRange(lineRange[0], currentCursor[0] - lineRange[0]);
 	let pipesRemaining = cursorToSOLText.match(/\|/g).length;
 	if (pipesRemaining > 1) {
@@ -82,13 +88,11 @@ function moveCursorToPreviousCell(currentCursor, lineRange) {
 			editor.setSelectedRange(lineRange[0] + substringPipeIndex + 2, 0);
 		}
 	}
-	let duration = (new Date().valueOf()) - start;
 }
 
 function getRow () {
 	let lineRange = editor.getSelectedLineRange();
-	let lineText = editor.getTextInRange(lineRange[0], lineRange[1]);
-	return lineText;	
+	return editor.getTextInRange(lineRange[0], lineRange[1]);
 }
 
 function lineBelongsToTable (lineText) {
@@ -110,7 +114,7 @@ function addRowToTable (columnNumber) {
 function countColumns (line) {
 	const regex = /\|/g;
 	let results = ((line || '').match(regex) || []).length;
-	if (results != [] && results > 1){
+	if (results > 1){
 		return results - 2;
 	} else {
 		return 1;
@@ -131,7 +135,7 @@ function findLongestCellValue(fullTableRange) {
 	let endPos = fullTableRange[0] + fullTableRange[1];
 	let cells = tableRangeRowToArray(fullTableRange);
 	let maxLengths = [];
-	for (let i = 0; i < cells.length; i++) {
+	for (let i of cells) {
 		maxLengths.push(0);
 	}
 	for (let i = fullTableRange[0]; i < endPos; i++) {
@@ -169,55 +173,118 @@ function stringRowToArray(row) {
 /**
  * @param {number} maxLength
  * @param {string} origString
+ * @param {number} alignment
  */
-function getTailPadding (maxLength, origString) {
-	let spacesToAdd = maxLength - origString.length + 1;
+function getTailPadding (maxLength, origString, alignment) {
 	let padding = "";
-	for (let i = 0; i < spacesToAdd; i++) {
-		if (origString.startsWith(":--") && i < spacesToAdd - 1){
-			padding+="-";
+	let spacesToAdd = 0;
+	if (alignment == CENTRE_ALIGN) {
+		if (origString.length % 2 == 0) {
+			spacesToAdd = Math.floor((maxLength - origString.length) / 2) + 1;
 		} else {
-			padding+=" ";
+			spacesToAdd = Math.floor((maxLength - origString.length) / 2) + 2;
+		}
+	} else if (alignment == LEFT_ALIGN) {
+		spacesToAdd = maxLength - origString.length + 1;
+	} else {
+		// RIGHT_ALIGN so only return 1 space
+		spacesToAdd = 1;
+	}
+	for (let i = 0; i < spacesToAdd; i++) {
+		if (isDelimiterValue(origString) && i < spacesToAdd - 1) {
+			padding += "-";
+		} else {
+			padding += " ";
 		}
 	}
 	return padding;
 }
 
+function getHeadPadding (maxLength, origString, alignment) {
+	let padding = "";
+	let spacesToAdd = 0;
+	// console.log(`origString: ${origString} - maxLength: ${maxLength} - alignment: ${alignment}`);
+	if (alignment == CENTRE_ALIGN) {
+		spacesToAdd = Math.floor((maxLength - origString.length) / 2) + 1;
+	} else if (alignment == LEFT_ALIGN) {
+		// LEFT_ALIGN so only return 1 space
+		spacesToAdd = 1;
+	} else {
+		// console.log(`origString: ${origString} - maxLength: ${maxLength}`);
+		spacesToAdd = maxLength - origString.length + 1;
+	}
+	// console.log(`spacesToAdd: ${spacesToAdd}`);
+	for (let i = 0; i < spacesToAdd; i++) {
+		if (isDelimiterValue(origString) && i != 0) {
+			padding += "-";
+		} else {
+			padding += " ";
+		}
+	}
+	// console.log(`padding: '${padding}'`);
+	return padding;
+
+}
+
+function isDelimiterValue (value) {
+
+	return leftAlignPattern.test(value) || rightAlignPattern.test(value) || centreAlignPattern.test(value);
+}
+
 function getJustificationSettings (secondTableRowString) {
-    
+    let cells = stringRowToArray(secondTableRowString);
+    let justificationArray = [];
+    for (let cell of cells) {
+		if (leftAlignPattern.test(cell)) {
+			justificationArray.push([LEFT_ALIGN]);
+		} else if (rightAlignPattern.test(cell)) {
+			justificationArray.push(RIGHT_ALIGN);
+		} else if (centreAlignPattern.test(cell)) {
+			justificationArray.push(CENTRE_ALIGN);
+		} else {
+			justificationArray.push(LEFT_ALIGN);
+		}
+	}
+    // console.log(justificationArray);
+    return justificationArray;
 }
 
 function formatTable() {
-	let startMS = new Date().valueOf();
 	let line = getRow();
 	if (lineBelongsToTable(line)){
-		let columnCount = countColumns(line);
 		let tableRange = findFullTableRange(editor.getSelectedLineRange()[0]);
 		let tableText = editor.getTextInRange(tableRange[0], tableRange[1]);
+		console.log("***FULL TABLE***");
+		console.log(tableText);
+		console.log("***END OF TABLE***");
 		let table = tableText.split("\n");
-		let longestValueStart = new Date().valueOf();
 		let maxLengths = findLongestCellValue(tableRange);
-
+		let alignments = getJustificationSettings(table[1]);
 		let newTable = "";
 
 		for (let i = 0; i < table.length; i++) {
 			let textRow = table[i];
-			let firstIterStart = new Date().valueOf()
 			let cellValues = stringRowToArray(textRow);
 			let formattedLine = "|";
 			for (let j = 0; j < cellValues.length; j++) {
 				let val = cellValues[j];
 				let maxLength = maxLengths[j];
-				if (val.length < maxLength) {
-					formattedLine += " " + val + getTailPadding(maxLength, val);
+				let align = alignments[j];
+				if (isDelimiterValue(val) && align == CENTRE_ALIGN) {
+					val = ":";
+					for (let counter = 0; counter < maxLength - 2; counter++) {
+						val+= "-";
+					}
+					val += ":";
+					formattedLine += " " + val + " ";
+				} else if (val.length < maxLength) {
+					formattedLine += getHeadPadding(maxLength, val, align) + val + getTailPadding(maxLength, val, align);
 				} else {
 					formattedLine += " " + val + " ";
 				}
 				formattedLine += "|";
 			}
-			let firstIterDur = (new Date().valueOf()) - firstIterStart;
-
-			if (i != table.length - 1){
+			if (i !== table.length - 1){
 				newTable += formattedLine + "\n";
 			} else {
 				newTable += formattedLine
@@ -226,8 +293,6 @@ function formatTable() {
 
 		editor.setTextInRange(tableRange[0], tableRange[1], newTable);
 	}
-	let endMS = new Date().valueOf();
-	let totalTime = endMS - startMS;
 }
 
 /**
@@ -235,11 +300,7 @@ function formatTable() {
  */
 function lineStartOfDraft(position) {
 	let lineRange = editor.getLineRange(position, 0);
-	if (lineRange[0] === 0){
-		return true;
-	} else {
-		return false;
-	}
+	return lineRange[0] === 0;
 }
 
 /**
@@ -249,11 +310,7 @@ function lineEndOfDraft(position) {
 	let lineRange = editor.getLineRange(position, 0);
 	let lastIndexOfLine = lineRange[0] + lineRange[1] - 1;
 	let lastIndexInDraft = draftContents.length - 1;
-	if (lastIndexInDraft === lastIndexOfLine) {
-		return true;
-	} else {
-		return false;
-	}
+	return lastIndexInDraft === lastIndexOfLine;
 }
 
 /**
@@ -261,17 +318,16 @@ function lineEndOfDraft(position) {
  * @param {number} cursorPosition 
  */
 function findFullTableRange(cursorPosition) {
-	let startOfTableFound = false;
 	let fullTableRange = [0,0];
 	let startOfTablePos = getStartOfTablePosition(cursorPosition);
-	if (startOfTablePos == undefined){
+	if (startOfTablePos === undefined){
 		return null;
 	} else {
 		fullTableRange[0] = startOfTablePos;
 	}
 
 	let endOfTablePos = getEndOfTablePosition(cursorPosition);
-	if (endOfTablePos == undefined) {
+	if (endOfTablePos === undefined) {
 		return null;
 	} else {
 		fullTableRange[1] = endOfTablePos - startOfTablePos;
@@ -337,10 +393,10 @@ function getEndOfTablePosition (cursorPosition) {
 					endOfTableFound = true;
 				} else {
 					endOfTablePos = tempLineRange[0] + tempLineRange[1] - 1;
-					pos = tempLineRange[0] + tempLineRange[1] + 1;
+					pos = tempLineRange[0] + tempLineRange[1];
 				}
 			}
-			if (!endOfTableFound && endOfTablePos == undefined) {
+			if (!endOfTableFound && endOfTablePos === undefined) {
 				endOfTablePos = draftContents.length - 1;
 			}
 		}
