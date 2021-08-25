@@ -384,11 +384,7 @@ function findTable(currentCursor) {
 			console.log(`Found:\n${tableString}`);
 			console.log(`Converted:\n${converted}`);
 			result.push(prevTable.index);
-			if (tableString.endsWith("\n")) {
-				result.push(prevTable[0].length - 1);
-			} else {
-				result.push(prevTable[0].length);
-			}
+			result.push(prevTable[0].trim().length);
 			break;
 		} else {
 			prevTable = table;
@@ -398,10 +394,7 @@ function findTable(currentCursor) {
 	if (result.length === 0 && prevTable != undefined) {
 		//this handles the situation where the table is the last structure in the draft.
 		result.push(prevTable.index);
-		if (prevTable[0].endsWith("\n")) {
-			result.push(prevTable[0].length - 1);
-		} else {
-			result.push(prevTable[0].length);
-		}	}
+		result.push(prevTable[0].trim().length);
+	}
 	return result;
 }
