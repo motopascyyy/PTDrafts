@@ -12,6 +12,10 @@ const RIGHT_ALIGN = 1
 let leftAlignPattern = /^\s*:-+\s*$/;
 let rightAlignPattern = /^\s*-+:\s*$/;
 let centreAlignPattern = /^\s*:-+:\s*$/;
+let noAlignPattern = /^\s*-+\s*$/;
+const regex = /\|/g;
+const tableRegex = /^(\|[^\n]+\|\n)((?:\|\s*:?[-]+:?\s*)+\|)(\n(?:\|[^\n]+\|\n?)*)?$/gm;
+
 
 function betterTab () {
 	let start = new Date().valueOf();
@@ -54,11 +58,7 @@ function betterShiftTab() {
 
 function isBulletedList (preceedingTrimmedString) {
 	let regex = /^:|\*|\-|\+|\d+\.$/g;
-	if (preceedingTrimmedString.match(regex)){
-		return true;
-	} else {
-		return false;
-	}
+	return preceedingTrimmedString.match(regex);
 }
 
 
@@ -102,7 +102,6 @@ function lineBelongsToTable (lineText) {
 
 function addRowToTable (columnNumber) {
 	let lineRange = editor.getSelectedLineRange();
-	let lineText = editor.getTextInRange(lineRange[0], lineRange[1]);
 	let newRow = "| ";
 	for (let i = 0; i < columnNumber; i++) {
 		newRow += " | ";
@@ -112,7 +111,6 @@ function addRowToTable (columnNumber) {
 }
 
 function countColumns (line) {
-	const regex = /\|/g;
 	let results = ((line || '').match(regex) || []).length;
 	if (results > 1){
 		return results - 2;
@@ -179,11 +177,10 @@ function getTailPadding (maxLength, origString, alignment) {
 	let padding = "";
 	let spacesToAdd = 0;
 	if (alignment == CENTRE_ALIGN) {
-		if (origString.length % 2 == 0) {
-			spacesToAdd = Math.floor((maxLength - origString.length) / 2) + 1;
-		} else {
-			spacesToAdd = Math.floor((maxLength - origString.length) / 2) + 2;
-		}
+		let lengthDiff = maxLength - origString.length;
+		let diffDiv2 = lengthDiff/2;
+		spacesToAdd = Math.ceil(diffDiv2) + 1;
+		// console.log(`Tail Spaces:\n\tlengthDiff = ${lengthDiff}\n\tdivided by 2: ${diffDiv2}\n\tfloored: ${Math.floor(diffDiv2)}`);
 	} else if (alignment == LEFT_ALIGN) {
 		spacesToAdd = maxLength - origString.length + 1;
 	} else {
@@ -203,14 +200,16 @@ function getTailPadding (maxLength, origString, alignment) {
 function getHeadPadding (maxLength, origString, alignment) {
 	let padding = "";
 	let spacesToAdd = 0;
-	// console.log(`origString: ${origString} - maxLength: ${maxLength} - alignment: ${alignment}`);
+	console.log(`origString: '${origString}' - maxLength: ${maxLength} - alignment: ${alignment}`);
 	if (alignment == CENTRE_ALIGN) {
-		spacesToAdd = Math.floor((maxLength - origString.length) / 2) + 1;
+		let lengthDiff = maxLength - origString.length;
+		let diffDiv2 = lengthDiff/2;
+		// console.log(`Head Spaces:\n\tlengthDiff = ${lengthDiff}\n\tdivided by 2: ${diffDiv2}\n\tfloored: ${Math.floor(diffDiv2)}`);
+		spacesToAdd = Math.floor(diffDiv2) + 1;
 	} else if (alignment == LEFT_ALIGN) {
 		// LEFT_ALIGN so only return 1 space
 		spacesToAdd = 1;
 	} else {
-		// console.log(`origString: ${origString} - maxLength: ${maxLength}`);
 		spacesToAdd = maxLength - origString.length + 1;
 	}
 	// console.log(`spacesToAdd: ${spacesToAdd}`);
@@ -228,7 +227,10 @@ function getHeadPadding (maxLength, origString, alignment) {
 
 function isDelimiterValue (value) {
 
-	return leftAlignPattern.test(value) || rightAlignPattern.test(value) || centreAlignPattern.test(value);
+	return leftAlignPattern.test(value) ||
+		rightAlignPattern.test(value) ||
+		centreAlignPattern.test(value) ||
+		noAlignPattern.test(value);
 }
 
 function getJustificationSettings (secondTableRowString) {
@@ -252,7 +254,7 @@ function getJustificationSettings (secondTableRowString) {
 function formatTable() {
 	let line = getRow();
 	if (lineBelongsToTable(line)){
-		let tableRange = findFullTableRange(editor.getSelectedLineRange()[0]);
+		let tableRange = findTable(editor.getSelectedLineRange()[0]);
 		let tableText = editor.getTextInRange(tableRange[0], tableRange[1]);
 		console.log("***FULL TABLE***");
 		console.log(tableText);
@@ -313,93 +315,86 @@ function lineEndOfDraft(position) {
 	return lastIndexInDraft === lastIndexOfLine;
 }
 
-/**
- * 
- * @param {number} cursorPosition 
- */
-function findFullTableRange(cursorPosition) {
-	let fullTableRange = [0,0];
-	let startOfTablePos = getStartOfTablePosition(cursorPosition);
-	if (startOfTablePos === undefined){
-		return null;
-	} else {
-		fullTableRange[0] = startOfTablePos;
-	}
-
-	let endOfTablePos = getEndOfTablePosition(cursorPosition);
-	if (endOfTablePos === undefined) {
-		return null;
-	} else {
-		fullTableRange[1] = endOfTablePos - startOfTablePos;
-	}
-	return fullTableRange;
-}
 
 /**
  * @param {number} cursorPosition
  */
-function getStartOfTablePosition (cursorPosition) {
-	let startOfTableFound = false;
-	let startOfTablePos = undefined;
-	let cursorLineRange = editor.getLineRange(cursorPosition, 0);
-	let lineText = '';
-	if (lineEndOfDraft(cursorPosition)){
-		lineText = editor.getTextInRange(cursorLineRange[0],cursorLineRange[1]);
-	} else {
-		lineText = editor.getTextInRange(cursorLineRange[0],cursorLineRange[1] - 1);
-	}
-	if (lineBelongsToTable(lineText)) {
-		if (lineStartOfDraft(cursorLineRange[0])){
-			startOfTablePos = 0;
+function getCurrentColumnIndex (cursorPosition) {
+	let line = getRow();
+	if (lineBelongsToTable(line)) {
+		let [startOfLinePos, lineLength] = editor.getSelectedLineRange();
+		let lineToCursorText = editor.getTextInRange(editor.getSelectedLineRange()[0], cursorPosition - startOfLinePos);
+		let results = ((lineToCursorText || '').match(regex) || []).length;
+		if (results < 1) {
+			return 0;
 		} else {
-			let pos = cursorLineRange[0];
-			while (!lineStartOfDraft(pos) && !startOfTableFound) {
-				let tempLineRange = editor.getLineRange(pos,0);
-				let tempLineText = editor.getTextInRange(tempLineRange[0],tempLineRange[1]);
-				if (!lineBelongsToTable(tempLineText)) {
-					startOfTableFound = true;
-				} else {
-					startOfTablePos = tempLineRange[0];
-					pos = tempLineRange[0]-1;
-				}
-			}
+			return results - 1;
 		}
+	} else {
+		return null;
 	}
-	return startOfTablePos;
+}
+
+function insertColumn () {
+	let cursor = editor.getSelectedRange()[0];
+	let currentColumnIndex = getCurrentColumnIndex(cursor);
+	console.log(`Current Column Index: ${currentColumnIndex}`);
+	let line = getRow();
+	if (lineBelongsToTable(line)) {
+		let tableRange = findTable(cursor);
+		let table = editor.getTextInRange(tableRange[0], tableRange[1]).split("\n");
+		let counter = 0;
+		for (let row of table) {
+			let cells = row.split("|");
+			console.log(`Split Row: [${cells}]`);
+			console.log(`testing '${cells[1].trim()}' is a header separator - ${isDelimiterValue(cells[1].trim())}`);
+			if (isDelimiterValue(cells[1].trim())) {
+				cells.splice(currentColumnIndex + 1, 0, " :---- ");
+			} else {
+				cells.splice(currentColumnIndex + 1, 0, "       ");
+			}
+			table[counter] = cells.join("|");
+			counter++;
+		}
+		editor.setTextInRange(tableRange[0], tableRange[1], table.join("\n"));
+	}
 }
 
 /**
- * @param {number} cursorPosition
+ *
+ * @param {number} currentCursor
+ * @returns {number[]}
  */
-function getEndOfTablePosition (cursorPosition) {
-	let endOfTableFound = false;
-	let endOfTablePos = undefined;
-	let cursorLineRange = editor.getLineRange(cursorPosition, 0);
-	let lineText = ''; 
-	if (lineEndOfDraft(cursorPosition)){
-		lineText = editor.getTextInRange(cursorLineRange[0],cursorLineRange[1]);
-	} else {
-		lineText = editor.getTextInRange(cursorLineRange[0],cursorLineRange[1] - 1);
-	}
-	if (lineBelongsToTable(lineText)) {
-		if (lineEndOfDraft(cursorPosition)) {
-			endOfTablePos = draftContents.length;
-		} else {
-			let pos = cursorLineRange[0];
-			while (!lineEndOfDraft(pos) && !endOfTableFound) {
-				let tempLineRange = editor.getLineRange(pos, 0);
-				let tempLineText = editor.getTextInRange(tempLineRange[0],tempLineRange[1]-1);
-				if (!lineBelongsToTable(tempLineText)) {
-					endOfTableFound = true;
-				} else {
-					endOfTablePos = tempLineRange[0] + tempLineRange[1] - 1;
-					pos = tempLineRange[0] + tempLineRange[1];
-				}
-			}
-			if (!endOfTableFound && endOfTablePos === undefined) {
-				endOfTablePos = draftContents.length - 1;
-			}
+function findTable(currentCursor) {
+
+	let draftContent = editor.getText();
+	let tables = draftContent.matchAll(tableRegex);
+	let prevTable;
+	let result = [];
+	let rowCounter = 0;
+	for (let table of tables) {
+		if (table.index > currentCursor && rowCounter == 0) {
+			result.push(table.index);
+			result.push(table[0].length);
+			break;
 		}
+		else if (table.index > currentCursor) {
+			let tableString = prevTable[0];
+			let converted = tableString.replaceAll("\n", "\\n");
+			console.log(`Found:\n${tableString}`);
+			console.log(`Converted:\n${converted}`);
+			result.push(prevTable.index);
+			result.push(prevTable[0].trim().length);
+			break;
+		} else {
+			prevTable = table;
+		}
+		rowCounter++;
 	}
-	return endOfTablePos;
+	if (result.length === 0 && prevTable != undefined) {
+		//this handles the situation where the table is the last structure in the draft.
+		result.push(prevTable.index);
+		result.push(prevTable[0].trim().length);
+	}
+	return result;
 }
