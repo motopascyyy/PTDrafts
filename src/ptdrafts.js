@@ -351,7 +351,7 @@ function insertColumn () {
 			if (isDelimiterValue(cells[1].trim())) {
 				cells.splice(currentColumnIndex + 1, 0, " :---- ");
 			} else {
-				cells.splice(currentColumnIndex + 1, 0, "      ");
+				cells.splice(currentColumnIndex + 1, 0, "       ");
 			}
 			table[counter] = cells.join("|");
 			counter++;
